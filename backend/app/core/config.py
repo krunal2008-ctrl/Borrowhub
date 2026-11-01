@@ -47,6 +47,13 @@ class Settings(BaseSettings):
     SMTP_FROM_NAME: str = "BorrowHub SVNIT"
     SMTP_TLS: bool = True
 
+    # Brevo Transactional Email API
+    BREVO_API_KEY: str = ""
+    BREVO_SENDER_EMAIL: str = ""
+
+    # Public Application URL
+    PUBLIC_APP_URL: str = "http://127.0.0.1:8000"
+
     # CORS
     CORS_ORIGINS: List[str] = [
         "http://localhost:3000",
