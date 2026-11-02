@@ -48,6 +48,11 @@ def get_current_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Your account has been suspended or deactivated. Contact campus support.",
         )
+    if not user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Please verify your SVNIT email address before accessing BorrowHub.",
+        )
     return user
 
 
@@ -86,6 +91,7 @@ def get_optional_current_user(
     user = db.query(AppUser).filter(
         AppUser.user_id == int(payload["sub"]),
         AppUser.is_active == 1,
+        AppUser.is_verified == 1,
         AppUser.deleted_at.is_(None)
     ).first()
     return user

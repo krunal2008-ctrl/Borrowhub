@@ -27,14 +27,10 @@ def register(data: UserRegister, db: Session = Depends(get_db)):
         purpose="VERIFICATION"
     )
     from backend.app.core.config import settings
-    from backend.app.core.security import create_access_token
-    access_token = create_access_token(
-        data={"sub": str(user.user_id), "role": user.role, "email": user.svnit_email}
-    )
     # When deployed or when a real email was dispatched via SMTP, the OTP code is strictly private to the recipient's inbox.
     debug_otp = None if (email_sent or settings.ENVIRONMENT.lower() in ("production", "prod", "staging")) else otp
     return TokenResponse(
-        access_token=access_token,
+        access_token=None,
         token_type="bearer",
         user=UserProfile.model_validate(user),
         verification_token_or_otp=debug_otp,
@@ -42,8 +38,10 @@ def register(data: UserRegister, db: Session = Depends(get_db)):
         message=email_msg
     )
 
-
-@router.post("/verify-email")
+@router.post(
+    "/verify-email",
+    dependencies=[Depends(rate_limit_auth)]
+)
 def verify_email(data: VerifyEmailRequest, db: Session = Depends(get_db)):
     user = verify_email_otp(db, data.email, data.otp)
     from backend.app.core.security import create_access_token
@@ -92,26 +90,39 @@ def get_current_profile(current_user: AppUser = Depends(get_current_user)):
     return UserProfile.model_validate(current_user)
 
 
-@router.post("/forgot-password", dependencies=[Depends(rate_limit_auth)])
-def forgot_password(data: PasswordResetRequest, db: Session = Depends(get_db)):
+@router.post(
+    "/forgot-password",
+    dependencies=[Depends(rate_limit_auth)]
+)
+def forgot_password(
+    data: PasswordResetRequest,
+    db: Session = Depends(get_db)
+):
     otp = request_password_reset(db, data.email)
-    from backend.app.models.user import AppUser
-    from backend.app.services.email_service import send_email_otp
-    user = db.query(AppUser).filter(AppUser.svnit_email == data.email.strip().lower()).first()
-    recipient_name = user.full_name if user else "Student"
-    email_sent, email_msg = send_email_otp(
-        to_email=data.email,
-        recipient_name=recipient_name,
-        otp=otp,
-        purpose="PASSWORD_RESET"
-    )
-    from backend.app.core.config import settings
-    debug_otp = None if (email_sent or settings.ENVIRONMENT.lower() in ("production", "prod", "staging")) else otp
+
+    if otp is not None:
+        from backend.app.models.user import AppUser
+        from backend.app.services.email_service import send_email_otp
+
+        user = db.query(AppUser).filter(
+            AppUser.svnit_email == data.email.strip().lower(),
+            AppUser.deleted_at.is_(None)
+        ).first()
+
+        if user:
+            send_email_otp(
+                to_email=user.svnit_email,
+                recipient_name=user.full_name,
+                otp=otp,
+                purpose="PASSWORD_RESET"
+            )
+
+    # Identical response whether the account exists or not.
     return {
-        "message": "Password reset code sent to your email.",
-        "otp_debug": debug_otp,
-        "email_sent": email_sent,
-        "detail": email_msg
+        "message": (
+            "If an account exists for this email, "
+            "you will receive password reset instructions."
+        )
     }
 
 
