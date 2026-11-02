@@ -7,7 +7,10 @@ _repo_root = Path(__file__).resolve().parent.parent.parent
 if str(_repo_root) not in sys.path:
     sys.path.insert(0, str(_repo_root))
 
-from fastapi import FastAPI
+import logging
+
+from fastapi import FastAPI, HTTPException
+from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from backend.app.core.config import settings
@@ -17,12 +20,16 @@ from backend.app.routes import (
     auth, items, borrow, loans, payments,
     notifications, reviews, disputes, admin, upload
 )
+logger = logging.getLogger(__name__)
 
 # Ensure database tables exist
 try:
     Base.metadata.create_all(bind=engine)
 except Exception:
-    pass
+    logger.exception(
+        "Database initialization failed. BorrowHub cannot start safely."
+    )
+    raise
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -73,8 +80,21 @@ app.include_router(upload.router, prefix="/api")
 
 @app.get("/api/health", tags=["Health"])
 def health_check():
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+
+    except Exception:
+        logger.exception("Database health check failed.")
+
+        raise HTTPException(
+            status_code=503,
+            detail="Database unavailable"
+        )
+
     return {
         "status": "healthy",
+        "database": "connected",
         "service": settings.PROJECT_NAME,
         "environment": settings.ENVIRONMENT,
         "version": settings.VERSION,
