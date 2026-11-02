@@ -42,11 +42,26 @@ def create_item(db: Session, owner: AppUser, data: ItemCreate) -> Item:
     if not cat:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid category ID.")
 
-    # Ensure owner is active and verified so any person can list items freely
-    if not owner.is_verified or not owner.is_active:
-        owner.is_verified = 1
-        owner.is_active = 1
-        db.flush()
+        # Only student accounts can create listings
+    if owner.role != "STUDENT":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only student accounts can create item listings."
+        )
+
+    # Require an active account
+    if not owner.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account is inactive. Contact campus admin."
+        )
+
+    # Require verified SVNIT email
+    if not owner.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Please verify your SVNIT email before listing an item."
+        )
 
     item = Item(
         owner_id=owner.user_id,
