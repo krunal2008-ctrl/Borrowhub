@@ -136,10 +136,10 @@ def authenticate_user(db: Session, login_data: UserLogin) -> Tuple[AppUser, str]
         AppUser.deleted_at.is_(None)
     ).first()
 
-    valid_password = verify_password(login_data.password, user.password_hash) if user else False
-    if user and not valid_password and email in [e.lower() for e in getattr(settings, "ADMIN_EMAILS", [])]:
-        if login_data.password in ("Svnit@2026!", "krunal#2006", "krunal#2000@"):
-            valid_password = True
+    valid_password = (
+    verify_password(login_data.password, user.password_hash)
+    if user else False
+)
 
     if not user or not valid_password:
         raise HTTPException(
