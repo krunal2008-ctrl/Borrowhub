@@ -99,23 +99,45 @@ def verify_email_otp(db: Session, email: str, otp: str) -> AppUser:
 
 
 def resend_verification_otp(db: Session, email: str) -> str:
-    """Generate and return a new email OTP for an unverified account."""
+    """Generate a new email OTP and invalidate previously issued OTPs."""
+
     email = email.strip().lower()
-    user = db.query(AppUser).filter(AppUser.svnit_email == email).first()
+
+    user = db.query(AppUser).filter(
+        AppUser.svnit_email == email
+    ).first()
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Account not found."
         )
+
     if user.is_verified:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Account is already verified."
         )
 
+    now = datetime.now(timezone.utc)
+
+    # Invalidate all previous unused email verification OTPs.
+    db.query(AuthToken).filter(
+        AuthToken.user_id == user.user_id,
+        AuthToken.token_type == "EMAIL_OTP",
+        AuthToken.used_at.is_(None)
+    ).update(
+        {AuthToken.used_at: now},
+        synchronize_session=False
+    )
+
+    # Generate a fresh OTP.
     otp = generate_otp(6)
     token_hash = hash_token_or_otp(otp)
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRY_MINUTES)
+
+    expires_at = now + timedelta(
+        minutes=settings.OTP_EXPIRY_MINUTES
+    )
 
     auth_token = AuthToken(
         user_id=user.user_id,
@@ -123,8 +145,10 @@ def resend_verification_otp(db: Session, email: str) -> str:
         token_hash=token_hash,
         expires_at=expires_at
     )
+
     db.add(auth_token)
     db.commit()
+
     return otp
 
 
@@ -152,6 +176,11 @@ def authenticate_user(db: Session, login_data: UserLogin) -> Tuple[AppUser, str]
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Your account is suspended. Contact campus admin."
         )
+    if not user.is_verified:
+        raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Please verify your SVNIT email before signing in."
+    )
 
     # Ensure configured admin emails have ADMIN role
     admin_list = [e.lower() for e in getattr(settings, "ADMIN_EMAILS", [])]
@@ -166,20 +195,38 @@ def authenticate_user(db: Session, login_data: UserLogin) -> Tuple[AppUser, str]
     return user, access_token
 
 
-def request_password_reset(db: Session, email: str) -> str:
-    """Create a password reset OTP for the user."""
+def request_password_reset(db: Session, email: str) -> Optional[str]:
+    """Create a password reset OTP without exposing account existence."""
+
     email = email.strip().lower()
+
     user = db.query(AppUser).filter(
         AppUser.svnit_email == email,
         AppUser.deleted_at.is_(None)
     ).first()
-    if not user:
-        # Don't leak whether email exists
-        return "123456"
 
+    # Never generate or return a fake OTP.
+    if not user:
+        return None
+
+# Invalidate all previously issued password-reset OTPs.
+    now = datetime.now(timezone.utc)
+
+    db.query(AuthToken).filter(
+        AuthToken.user_id == user.user_id,
+        AuthToken.token_type == "PASSWORD_RESET",
+        AuthToken.used_at.is_(None)
+    ).update(
+        {AuthToken.used_at: now},
+        synchronize_session=False
+    )
+
+    # Generate a fresh OTP.
     otp = generate_otp(6)
     token_hash = hash_token_or_otp(otp)
-    expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRY_MINUTES)
+    expires_at = now + timedelta(
+        minutes=settings.OTP_EXPIRY_MINUTES
+    )
 
     token = AuthToken(
         user_id=user.user_id,
@@ -187,8 +234,10 @@ def request_password_reset(db: Session, email: str) -> str:
         token_hash=token_hash,
         expires_at=expires_at
     )
+
     db.add(token)
     db.commit()
+
     return otp
 
 

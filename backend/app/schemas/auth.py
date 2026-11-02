@@ -82,7 +82,7 @@ class UserProfile(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    access_token: str
+    access_token: Optional[str] = None
     token_type: str = "bearer"
     user: UserProfile
     verification_token_or_otp: Optional[str] = None
