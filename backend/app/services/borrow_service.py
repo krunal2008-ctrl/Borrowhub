@@ -137,11 +137,19 @@ def create_borrow_request(db: Session, borrower: AppUser, data: BorrowRequestCre
             detail="You cannot borrow your own listing."
         )
 
-    # Ensure borrower is active and verified so any person can borrow items freely
-    if not borrower.is_verified or not borrower.is_active:
-        borrower.is_verified = 1
-        borrower.is_active = 1
-        db.flush()
+        # Ensure borrower account is active
+    if not borrower.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account is inactive. Contact campus admin."
+        )
+
+    # Require email verification before borrowing
+    if not borrower.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Please verify your SVNIT email before submitting a borrow request."
+        )
 
     # Validate dates
     today = date.today()
